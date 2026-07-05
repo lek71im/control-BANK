@@ -4,6 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>BANKROLL</title>
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0a0a12">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@600;800&family=Rubik:wght@400;500;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
@@ -173,6 +177,7 @@ header.topbar .logo{font-size:18px; margin:0;}
 .bet-top{display:flex; justify-content:space-between; align-items:center; gap:8px;}
 .bet-desc{font-weight:500; font-size:14px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
 .bet-meta{color:var(--text-dim); font-size:12px; margin-top:3px;}
+.bet-highlight{color:var(--cyan); font-weight:700; font-size:13px;}
 .bet-result{font-family:'Share Tech Mono',monospace; font-weight:700; font-size:15px; white-space:nowrap;}
 .tag{
   display:inline-block; font-size:10px; padding:2px 8px; border-radius:20px;
@@ -338,6 +343,10 @@ canvas{width:100%; display:block;}
   <div class="view" id="view-graficas">
     <div class="section-title">EVOLUCIÓN DEL BANK</div>
     <div class="chart-wrap"><canvas id="chart-bank" height="220"></canvas></div>
+    <div class="stat-card" style="margin-bottom:16px;">
+      <div class="stat-val c-cyan" id="stat-cuota-media">-</div>
+      <div class="stat-lbl">CUOTA MEDIA</div>
+    </div>
   </div>
 
   <div class="view" id="view-calendario">
@@ -450,6 +459,10 @@ canvas{width:100%; display:block;}
       <button class="btn btn-primary" onclick="guardarCuotaRapida()">Guardar</button>
     </div>
   </div>
+</div>
+
+<div class="modal-overlay" id="modal-foto" onclick="cerrarFotoGrande()" style="align-items:center; padding:20px; background:rgba(0,0,0,0.92);">
+  <img id="foto-grande" src="" style="max-width:100%; max-height:85vh; border-radius:14px; object-fit:contain;">
 </div>
 
 <script type="module">
@@ -585,6 +598,14 @@ function dineroEnJuego(){
     .reduce((s,b) => s + (parseFloat(b.stake)||0), 0);
 }
 
+function actualizarCuotaMedia(){
+  const el = document.getElementById('stat-cuota-media');
+  if(!el) return;
+  if(data.bets.length === 0){ el.textContent = '-'; return; }
+  const suma = data.bets.reduce((s,b) => s + cuotaEfectiva(b), 0);
+  el.textContent = (suma / data.bets.length).toFixed(2);
+}
+
 function renderTodo(){
   renderInicio();
   renderListaApuestas();
@@ -639,6 +660,7 @@ function renderListaApuestas(){
     if(bet.estado === 'ganada'){ resColor='c-green'; resTxt = '+'+res.toFixed(2)+' €'; }
     if(bet.estado === 'perdida'){ resColor='c-pink'; resTxt = res.toFixed(2)+' €'; }
     if(bet.estado === 'nula'){ resColor=''; resTxt = 'nula'; }
+    const thumbClick = bet.foto ? ' onclick="abrirFotoGrande(event,\''+bet.id+'\')" style="cursor:zoom-in;"' : '';
     const thumb = bet.foto ? '<img src="'+bet.foto+'">' : '📷';
     const tieneCF = bet.cuotaFinal !== undefined && bet.cuotaFinal !== null && bet.cuotaFinal !== '';
     const cuotaTxt = tieneCF ? (bet.cuota+' → '+bet.cuotaFinal) : bet.cuota;
@@ -662,11 +684,11 @@ function renderListaApuestas(){
       + '<div class="sport-badge">'+badgeDeportes+'</div>'
       + '<div class="bet-card-top" onclick="'+clickHandler+'">'
       + checkbox
-      + '<div class="bet-thumb">'+thumb+'</div>'
+      + '<div class="bet-thumb"'+thumbClick+'>'+thumb+'</div>'
       + '<div class="bet-info">'
       + '<div class="bet-top"><div class="bet-desc">'+escapeHtml(bet.desc||'Sin descripción')+'</div>'
       + '<div class="bet-result mono '+resColor+'">'+resTxt+'</div></div>'
-      + '<div class="bet-meta">'+bet.fecha+' · cuota '+cuotaTxt+' · stake '+bet.stake+'€'
+      + '<div class="bet-meta"><span class="bet-highlight mono">cuota '+cuotaTxt+'</span> · <span class="bet-highlight mono">'+bet.stake+'€</span>'
       + '<span class="estado-pill estado-'+bet.estado+'">'+bet.estado+'</span></div>'
       + '<span class="tag tag-'+bet.etiqueta+'">'+bet.etiqueta+'</span>'
       + '</div></div>' + acciones + '</div>';
@@ -717,6 +739,17 @@ window.abrirModalApuesta = function(id){
     window.tempFoto = null;
   }
   document.getElementById('modal-apuesta').classList.add('active');
+}
+
+window.abrirFotoGrande = function(event, id){
+  event.stopPropagation();
+  const bet = data.bets.find(b => b.id === id);
+  if(!bet || !bet.foto) return;
+  document.getElementById('foto-grande').src = bet.foto;
+  document.getElementById('modal-foto').classList.add('active');
+}
+window.cerrarFotoGrande = function(){
+  document.getElementById('modal-foto').classList.remove('active');
 }
 
 window.cerrarModalApuesta = function(){
@@ -908,6 +941,7 @@ window.guardarBankInicial = async function(){
 }
 
 window.dibujarGrafica = function(){
+  actualizarCuotaMedia();
   const canvas = document.getElementById('chart-bank');
   const ctx = canvas.getContext('2d');
   const dpr = window.devicePixelRatio || 1;
