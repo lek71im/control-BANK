@@ -303,6 +303,20 @@ canvas{width:100%; display:block;}
 
 .section-title{font-family:'Orbitron',sans-serif; font-size:14px; color:var(--text-dim); letter-spacing:1px; margin:0 0 12px;}
 .hint{font-size:12px; color:var(--text-dim); text-align:center; margin-top:8px;}
+.apuestas-tabs{display:flex; gap:8px; margin-bottom:16px;}
+.apuestas-tab{
+  flex:1; padding:11px 4px; border-radius:10px; border:1px solid var(--border);
+  background:var(--bg); color:var(--text-dim); text-align:center; font-size:13px; font-weight:600; cursor:pointer;
+}
+.apuestas-tab.sel{border-color:var(--green); color:var(--green); background:var(--green-dim);}
+.badge-largo{
+  display:inline-flex; align-items:center; gap:4px; font-size:10px; padding:2px 8px; border-radius:20px;
+  border:1px solid var(--purple); color:var(--purple); background:var(--purple-dim); margin-left:6px;
+}
+.badge-fuerabank{
+  display:inline-flex; align-items:center; gap:4px; font-size:10px; padding:2px 8px; border-radius:20px;
+  border:1px solid var(--cyan); color:var(--cyan); background:#0a2a33; margin-left:6px;
+}
 </style>
 </head>
 <body>
@@ -345,8 +359,12 @@ canvas{width:100%; display:block;}
   </div>
 
   <div class="view" id="view-apuestas">
+    <div class="apuestas-tabs">
+      <div class="apuestas-tab sel" id="apstab-normal" onclick="cambiarTabApuestas('normal')">📋 Normales</div>
+      <div class="apuestas-tab" id="apstab-largo" onclick="cambiarTabApuestas('largo')">🎯 Largo plazo</div>
+    </div>
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-      <div class="section-title" style="margin:0;">HISTORIAL DE APUESTAS</div>
+      <div class="section-title" style="margin:0;" id="apuestas-list-title">HISTORIAL DE APUESTAS</div>
       <button class="btn btn-secondary" id="btn-seleccionar" style="display:none; flex:none; padding:8px 14px; font-size:12px;" onclick="toggleModoSeleccion()">Seleccionar</button>
     </div>
     <div id="lista-apuestas"></div>
@@ -417,6 +435,17 @@ canvas{width:100%; display:block;}
     <div class="field-row">
       <div class="field"><label>Cuota</label><input type="number" step="0.01" min="1" id="f-cuota" placeholder="1.85"></div>
       <div class="field"><label>Stake (€)</label><input type="number" step="0.5" min="0" id="f-stake" placeholder="10"></div>
+    </div>
+    <div class="field">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+        <input type="checkbox" id="f-largo-plazo" style="width:auto;" onchange="toggleLargoPlazo()"> 🎯 Apuesta a largo plazo
+      </label>
+    </div>
+    <div class="field" id="campo-excluir-bank" style="display:none;">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+        <input type="checkbox" id="f-excluir-bank" style="width:auto;"> No descontar del bank (dinero reservado aparte)
+      </label>
+      <div class="hint" style="text-align:left;margin-top:6px;">Si lo activas, el stake de esta apuesta no sumará ni restará al bank actual.</div>
     </div>
     <div class="field">
       <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
@@ -511,6 +540,7 @@ let modoSeleccion = false;
 let idsSeleccionados = new Set();
 let calMesActual = new Date().getMonth();
 let calAnioActual = new Date().getFullYear();
+let vistaApuestasTab = 'normal';
 
 async function sha256(str){
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
@@ -569,6 +599,18 @@ onSnapshot(collection(db, "bets"), (snap) => {
 
 document.getElementById('conn-status').textContent = '';
 
+window.cambiarTabApuestas = function(tab){
+  vistaApuestasTab = tab;
+  document.getElementById('apstab-normal').classList.toggle('sel', tab === 'normal');
+  document.getElementById('apstab-largo').classList.toggle('sel', tab === 'largo');
+  document.getElementById('apuestas-list-title').textContent = tab === 'largo' ? 'APUESTAS A LARGO PLAZO' : 'HISTORIAL DE APUESTAS';
+  modoSeleccion = false;
+  idsSeleccionados.clear();
+  document.getElementById('btn-seleccionar').textContent = 'Seleccionar';
+  document.getElementById('barra-seleccion').classList.remove('active');
+  renderListaApuestas();
+}
+
 window.cambiarVista = function(v){
   document.querySelectorAll('.view').forEach(el => el.classList.remove('active'));
   document.getElementById('view-'+v).classList.add('active');
@@ -595,7 +637,10 @@ function resultadoBet(bet){
 
 // Efecto real sobre el bank: el stake se resta al crear la apuesta (incluso pendiente),
 // y se devuelve según cómo se resuelva.
+// Si la apuesta está marcada como "excluirBank" (dinero de largo plazo aparte),
+// nunca afecta al bank, tenga el estado que tenga.
 function efectoLedger(bet){
+  if(bet.excluirBank) return 0;
   const cuota = cuotaEfectiva(bet);
   const stake = parseFloat(bet.stake) || 0;
   if(bet.estado === 'ganada') return -stake + (stake * cuota);
@@ -612,7 +657,13 @@ function bankActual(){
 
 function dineroEnJuego(){
   return data.bets
-    .filter(b => b.estado === 'pendiente')
+    .filter(b => b.estado === 'pendiente' && !b.excluirBank)
+    .reduce((s,b) => s + (parseFloat(b.stake)||0), 0);
+}
+
+function dineroEnJuegoAparte(){
+  return data.bets
+    .filter(b => b.estado === 'pendiente' && b.excluirBank)
     .reduce((s,b) => s + (parseFloat(b.stake)||0), 0);
 }
 
@@ -667,11 +718,13 @@ function renderInicio(){
 
 function renderListaApuestas(){
   const cont = document.getElementById('lista-apuestas');
-  if(data.bets.length === 0){
-    cont.innerHTML = '<div class="empty-state"><div class="icon">🎲</div>No hay apuestas todavía.' + (modo==='miembro' ? '<br>Toca el botón + para añadir la primera.' : '') + '</div>';
+  const betsTab = data.bets.filter(b => vistaApuestasTab === 'largo' ? !!b.largoPlazo : !b.largoPlazo);
+  if(betsTab.length === 0){
+    const msg = vistaApuestasTab === 'largo' ? 'No hay apuestas a largo plazo todavía.' : 'No hay apuestas todavía.';
+    cont.innerHTML = '<div class="empty-state"><div class="icon">🎲</div>' + msg + (modo==='miembro' ? '<br>Toca el botón + para añadir la primera.' : '') + '</div>';
     return;
   }
-  const ordenadas = [...data.bets].sort((a,b) => new Date(b.fecha) - new Date(a.fecha));
+  const ordenadas = [...betsTab].sort((a,b) => new Date(b.fecha) - new Date(a.fecha));
   cont.innerHTML = ordenadas.map(bet => {
     const res = resultadoBet(bet);
     let resColor = 'c-cyan', resTxt = bet.estado === 'pendiente' ? 'pendiente' : '0.00 €';
@@ -694,6 +747,8 @@ function renderListaApuestas(){
     const badgeDeportes = listaDeportes.length
       ? listaDeportes.map(d => (DEPORTES[d]||'') + ' ' + d).join('  ·  ')
       : '⚽ futbol';
+    const badgeLargo = bet.largoPlazo ? '<span class="badge-largo">🎯 Largo plazo</span>' : '';
+    const badgeFueraBank = bet.excluirBank ? '<span class="badge-fuerabank">🔒 Fuera del bank</span>' : '';
     const checkbox = modoSeleccion
       ? '<div class="bet-check'+(idsSeleccionados.has(bet.id)?' checked':'')+'">'+(idsSeleccionados.has(bet.id)?'✓':'')+'</div>'
       : '';
@@ -708,7 +763,7 @@ function renderListaApuestas(){
       + '<div class="bet-result mono '+resColor+'">'+resTxt+'</div></div>'
       + '<div class="bet-meta"><span class="bet-highlight mono">cuota '+cuotaTxt+'</span> · <span class="bet-highlight mono">'+bet.stake+'€</span>'
       + '<span class="estado-pill estado-'+bet.estado+'">'+bet.estado+'</span></div>'
-      + '<span class="tag tag-'+bet.etiqueta+'">'+bet.etiqueta+'</span>'
+      + '<span class="tag tag-'+bet.etiqueta+'">'+bet.etiqueta+'</span>' + badgeLargo + badgeFueraBank
       + '</div></div>' + acciones + '</div>';
   }).join('');
 }
@@ -732,6 +787,9 @@ window.abrirModalApuesta = function(id){
     document.getElementById('f-estado').value = bet.estado;
     document.getElementById('f-cuota').value = bet.cuota;
     document.getElementById('f-stake').value = bet.stake;
+    document.getElementById('f-largo-plazo').checked = !!bet.largoPlazo;
+    document.getElementById('f-excluir-bank').checked = !!bet.excluirBank;
+    toggleLargoPlazo();
     const tieneCuotaFinal = bet.cuotaFinal !== undefined && bet.cuotaFinal !== null && bet.cuotaFinal !== '';
     document.getElementById('f-cambio-cuota').checked = tieneCuotaFinal;
     document.getElementById('f-cuota-final').value = tieneCuotaFinal ? bet.cuotaFinal : '';
@@ -748,6 +806,9 @@ window.abrirModalApuesta = function(id){
     document.getElementById('f-estado').value = 'pendiente';
     document.getElementById('f-cuota').value = '';
     document.getElementById('f-stake').value = '';
+    document.getElementById('f-largo-plazo').checked = (vistaApuestasTab === 'largo');
+    document.getElementById('f-excluir-bank').checked = false;
+    toggleLargoPlazo();
     document.getElementById('f-cambio-cuota').checked = false;
     document.getElementById('f-cuota-final').value = '';
     toggleCuotaFinal();
@@ -870,6 +931,14 @@ function setDeportes(lista){
   });
 }
 
+window.toggleLargoPlazo = function(){
+  const checked = document.getElementById('f-largo-plazo').checked;
+  document.getElementById('campo-excluir-bank').style.display = checked ? 'block' : 'none';
+  if(!checked){
+    document.getElementById('f-excluir-bank').checked = false;
+  }
+}
+
 window.toggleCuotaFinal = function(){
   const checked = document.getElementById('f-cambio-cuota').checked;
   document.getElementById('campo-cuota-final').style.display = checked ? 'block' : 'none';
@@ -910,6 +979,8 @@ window.guardarApuesta = async function(){
   }
   const cambioCuota = document.getElementById('f-cambio-cuota').checked;
   const cuotaFinalVal = document.getElementById('f-cuota-final').value;
+  const largoPlazo = document.getElementById('f-largo-plazo').checked;
+  const excluirBank = largoPlazo && document.getElementById('f-excluir-bank').checked;
   const id = apuestaEditandoId || ('bet_'+Date.now());
   if(deportesSeleccionados.size === 0){
     alert('Elige al menos un deporte');
@@ -920,7 +991,8 @@ window.guardarApuesta = async function(){
     deportes: Array.from(deportesSeleccionados),
     cuotaFinal: (cambioCuota && cuotaFinalVal) ? cuotaFinalVal : null,
     etiqueta: tagSeleccionado,
-    foto: window.tempFoto || null
+    foto: window.tempFoto || null,
+    largoPlazo, excluirBank
   };
   try{
     await setDoc(doc(db, "bets", id), betObj);
