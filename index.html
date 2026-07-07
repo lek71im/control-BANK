@@ -2,6 +2,24 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
+<script>
+// Comprueba si hay una version nueva publicada y si es asi, recarga la app sola una vez.
+(function(){
+  fetch('./version.txt', { cache: 'no-store' })
+    .then(function(res){ return res.text(); })
+    .then(function(nueva){
+      nueva = nueva.trim();
+      var actual = localStorage.getItem('bankroll_version');
+      if(actual && actual !== nueva){
+        localStorage.setItem('bankroll_version', nueva);
+        location.reload(true);
+      } else if(!actual){
+        localStorage.setItem('bankroll_version', nueva);
+      }
+    })
+    .catch(function(){ /* si falla la comprobacion, no pasa nada, se sigue cargando normal */ });
+})();
+</script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>BANKROLL</title>
 <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
